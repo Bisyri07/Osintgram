@@ -32,3 +32,9 @@ env/
 .claude/
 .graphify/
 .graphifyignore
+
+
+# Opencode
+.opencode/
+opencode.json
+AGENTS.md
