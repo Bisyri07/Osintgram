@@ -300,6 +300,41 @@ def convert_specs_to_openai_tools(tools_list: list) -> list:
     return openai_tools
 
 
+def _to_ollama_messages(messages: list) -> list:
+    """Flatten assistant `tool_calls` to plain dicts for ollama's pydantic
+    `Message` model.
+
+    `messages` carries our internal `LLMToolCall` dataclasses (see
+    src/web/app.py). Older ollama releases accepted those, but current ones
+    validate the payload with pydantic and reject anything that is not a dict
+    or a `Message.ToolCall` ("Input should be a valid dictionary or instance
+    of ToolCall"). Ollama's ToolCall has a single `function` field, so that is
+    all we emit; its `Message` ignores our extra keys.
+    """
+    out = []
+    for msg in messages:
+        calls = msg.get("tool_calls")
+        if not calls:
+            out.append(msg)
+            continue
+        normalized = []
+        for call in calls:
+            fn = getattr(call, "function", None)
+            if fn is not None:
+                name = getattr(fn, "name", "") or ""
+                args = getattr(fn, "arguments", None) or {}
+            elif isinstance(call, dict):
+                fdict = call.get("function") or {}
+                name = call.get("name") or fdict.get("name") or ""
+                args = call.get("arguments") or fdict.get("arguments") or {}
+            else:
+                name = getattr(call, "name", "") or ""
+                args = getattr(call, "arguments", None) or {}
+            normalized.append({"function": {"name": name, "arguments": dict(args)}})
+        out.append({**msg, "tool_calls": normalized})
+    return out
+
+
 def run_llm_chat(
     provider: str,
     model: str,
@@ -403,7 +438,7 @@ def run_llm_chat(
 
         for chunk in chat_fn(
             model=model,
-            messages=messages,
+            messages=_to_ollama_messages(messages),
             tools=tools,
             stream=True,
             options=options,
